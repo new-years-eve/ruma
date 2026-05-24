@@ -21,7 +21,7 @@ pub mod unstable {
         rate_limited: true,
         authentication: AccessToken,
         history: {
-            unstable("org.matrix.msc4140") => "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}",
+            unstable("org.matrix.msc4140") => "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/{action}",
         }
     }
 
@@ -49,6 +49,7 @@ pub mod unstable {
         #[ruma_api(path)]
         pub delay_id: String,
         /// Which kind of update we want to request for the delayed event.
+        #[ruma_api(path)]
         pub action: UpdateAction,
     }
 
@@ -76,7 +77,8 @@ pub mod unstable {
         use std::borrow::Cow;
 
         use ruma_common::api::{
-            MatrixVersion, OutgoingRequest, SupportedVersions, auth_scheme::SendAccessToken,
+            IncomingRequest as _, MatrixVersion, OutgoingRequest, SupportedVersions,
+            auth_scheme::SendAccessToken,
         };
         use serde_json::{Value as JsonValue, json};
 
@@ -99,14 +101,35 @@ pub mod unstable {
             let (parts, body) = request.into_parts();
 
             assert_eq!(
-                "https://homeserver.tld/_matrix/client/unstable/org.matrix.msc4140/delayed_events/1234",
+                "https://homeserver.tld/_matrix/client/unstable/org.matrix.msc4140/delayed_events/1234/cancel",
                 parts.uri.to_string()
             );
             assert_eq!("POST", parts.method.to_string());
             assert_eq!(
-                json!({"action": "cancel"}),
+                json!({}),
                 serde_json::from_str::<JsonValue>(std::str::from_utf8(&body).unwrap()).unwrap()
             );
+        }
+
+        #[test]
+        fn deserialize_update_delayed_events_request() {
+            let uri = http::Uri::builder()
+                .scheme("https")
+                .authority("matrix.org")
+                .path_and_query(
+                    "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/a_delay_id/send",
+                )
+                .build()
+                .unwrap();
+
+            let req = Request::try_from_http_request(
+                http::Request::builder().method("POST").uri(uri).body("").unwrap(),
+                &["a_delay_id", "send"],
+            )
+            .unwrap();
+
+            assert_eq!(req.delay_id, "a_delay_id".to_string());
+            assert_eq!(req.action, UpdateAction::Send);
         }
     }
 }
