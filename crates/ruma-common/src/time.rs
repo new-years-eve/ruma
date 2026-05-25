@@ -30,6 +30,11 @@ impl MilliSecondsSinceUnixEpoch {
         UNIX_EPOCH.checked_add(Duration::from_millis(self.0.into()))
     }
 
+    /// Adds the given Duration to the time, returning it if the new time can be represented
+    pub fn checked_add(self, rhs: Duration) -> Option<Self> {
+        Self::from_system_time(self.to_system_time()? + rhs)
+    }
+
     /// Get the time since the unix epoch in milliseconds.
     pub fn get(&self) -> UInt {
         self.0
@@ -65,6 +70,14 @@ impl fmt::Debug for MilliSecondsSinceUnixEpoch {
                 write!(f, "MilliSecondsSinceUnixEpoch({})", self.0)
             }
         }
+    }
+}
+
+impl TryFrom<SystemTime> for MilliSecondsSinceUnixEpoch {
+    type Error = ();
+
+    fn try_from(value: SystemTime) -> Result<Self, Self::Error> {
+        Self::from_system_time(value).ok_or(())
     }
 }
 
@@ -121,6 +134,14 @@ impl fmt::Debug for SecondsSinceUnixEpoch {
                 write!(f, "SecondsSinceUnixEpoch({})", self.0)
             }
         }
+    }
+}
+
+impl TryFrom<SystemTime> for SecondsSinceUnixEpoch {
+    type Error = ();
+
+    fn try_from(value: SystemTime) -> Result<Self, Self::Error> {
+        Self::from_system_time(value).ok_or(())
     }
 }
 
