@@ -2,8 +2,12 @@
 //!
 //! Send a delayed event update. This can be a updateing/canceling/sending the associated delayed
 //! event.
-
-pub mod deprecated;
+//!
+//! This endpoint implements a previous iteration of MSC4140 at commit [`3ee73ab`].
+//! At the time of writing, this matches the current implementation of Synapse but the latest
+//! iteration of the MSC uses the endpoint in `update_delayed_event` endpoint instead.
+//!
+//! [`3ee73ab`]: https://github.com/matrix-org/matrix-spec-proposals/blob/3ee73abe5f81252b00877cfb5db941ee9aa6c18d/proposals/4140-delayed-events-futures.md
 
 pub mod unstable {
     //! `msc3814` ([MSC])
@@ -11,7 +15,7 @@ pub mod unstable {
     //! [MSC]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
 
     use ruma_common::{
-        api::{auth_scheme::NoAccessToken, request, response},
+        api::{auth_scheme::AccessToken, request, response},
         metadata,
         serde::StringEnum,
     };
@@ -21,9 +25,9 @@ pub mod unstable {
     metadata! {
         method: POST,
         rate_limited: true,
-        authentication: NoAccessToken,
+        authentication: AccessToken,
         history: {
-            unstable("org.matrix.msc4140") => "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/{action}",
+            unstable("org.matrix.msc4140") => "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}",
         }
     }
 
@@ -51,7 +55,6 @@ pub mod unstable {
         #[ruma_api(path)]
         pub delay_id: String,
         /// Which kind of update we want to request for the delayed event.
-        #[ruma_api(path)]
         pub action: UpdateAction,
     }
 
@@ -75,7 +78,7 @@ pub mod unstable {
     }
 
     #[cfg(all(test, feature = "client"))]
-    mod client_tests {
+    mod tests {
         use std::borrow::Cow;
 
         use ruma_common::api::{
@@ -84,7 +87,6 @@ pub mod unstable {
         use serde_json::{Value as JsonValue, json};
 
         use super::{Request, UpdateAction};
-
         #[test]
         fn serialize_update_delayed_event_request() {
             let supported = SupportedVersions {
@@ -95,7 +97,7 @@ pub mod unstable {
                 Request::new("1234".to_owned(), UpdateAction::Cancel)
                     .try_into_http_request(
                         "https://homeserver.tld",
-                        SendAccessToken::None,
+                        SendAccessToken::IfRequired("auth_tok"),
                         Cow::Owned(supported),
                     )
                     .unwrap();
@@ -103,43 +105,14 @@ pub mod unstable {
             let (parts, body) = request.into_parts();
 
             assert_eq!(
-                "https://homeserver.tld/_matrix/client/unstable/org.matrix.msc4140/delayed_events/1234/cancel",
+                "https://homeserver.tld/_matrix/client/unstable/org.matrix.msc4140/delayed_events/1234",
                 parts.uri.to_string()
             );
             assert_eq!("POST", parts.method.to_string());
             assert_eq!(
-                json!({}),
+                json!({"action": "cancel"}),
                 serde_json::from_str::<JsonValue>(std::str::from_utf8(&body).unwrap()).unwrap()
             );
-        }
-    }
-
-    #[cfg(all(test, feature = "server"))]
-    mod server_tests {
-
-        use ruma_common::api::IncomingRequest;
-
-        use super::{Request, UpdateAction};
-
-        #[test]
-        fn deserialize_update_delayed_events_request() {
-            let uri = http::Uri::builder()
-                .scheme("https")
-                .authority("matrix.org")
-                .path_and_query(
-                    "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/a_delay_id/send",
-                )
-                .build()
-                .unwrap();
-
-            let req = Request::try_from_http_request(
-                http::Request::builder().method("POST").uri(uri).body("").unwrap(),
-                &["a_delay_id", "send"],
-            )
-            .unwrap();
-
-            assert_eq!(req.delay_id, "a_delay_id".to_owned());
-            assert_eq!(req.action, UpdateAction::Send);
         }
     }
 }
