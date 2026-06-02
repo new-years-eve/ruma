@@ -8,17 +8,13 @@ pub mod unstable {
     //! [MSC]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
 
     use ruma_common::{
-        OwnedRoomId,
+        MilliSecondsSinceUnixEpoch, OwnedRoomId,
         api::{Direction, auth_scheme::AccessToken, request, response},
         metadata,
-        serde::StringEnum,
     };
     use ruma_events::TimelineEventType;
 
-    use crate::{
-        PrivOwnedStr,
-        delayed_events::{DelayedEventData, DelayedEventOutcome, DelayedEventStatus},
-    };
+    use crate::delayed_events::{DelayedEventData, DelayedEventStatus};
 
     metadata! {
         method: GET,
@@ -37,10 +33,6 @@ pub mod unstable {
     /// and `since_ts` in the MSC have not been included.
     #[request]
     pub struct Request {
-        /// The order in which to display the events.
-        #[ruma_api(query)]
-        pub order_by: OrderBy,
-
         /// The direction to return events from.
         #[ruma_api(query)]
         #[serde(default = "Direction::forward")]
@@ -50,6 +42,16 @@ pub mod unstable {
         #[ruma_api(query)]
         #[serde(skip_serializing_if = "Option::is_none")]
         pub from: Option<String>,
+
+        /// If provided, only return events scheduled to be sent after this time
+        #[ruma_api(query)]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub from_ts: Option<MilliSecondsSinceUnixEpoch>,
+
+        /// If provided, only return events scheduled to be sent before this time
+        #[ruma_api(query)]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub to_ts: Option<MilliSecondsSinceUnixEpoch>,
 
         /// If specified, return only events of the specified status
         #[ruma_api(query)]
@@ -66,12 +68,6 @@ pub mod unstable {
         #[serde(rename = "type")]
         #[serde(skip_serializing_if = "Option::is_none")]
         pub event_type: Option<TimelineEventType>,
-
-        /// If specified, return only finalized events that were finalized with the specified
-        /// outcome
-        #[ruma_api(query)]
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pub outcome: Option<DelayedEventOutcome>,
     }
 
     /// Response type for the
@@ -88,25 +84,19 @@ pub mod unstable {
         /// results.
         #[serde(skip_serializing_if = "Option::is_none")]
         pub next_batch: Option<String>,
-
-        /// A token that can be passed into a subsequent call to the endpoint to retrieve the
-        /// previous page of results. Absent if paginating forward or when there is no previous
-        /// page of results.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pub prev_batch: Option<String>,
     }
 
     impl Request {
         /// Create a new Request
         pub fn new() -> Self {
             Self {
-                order_by: OrderBy::default(),
                 dir: Direction::Forward,
                 from: None,
+                from_ts: None,
+                to_ts: None,
                 status: None,
                 room_id: None,
                 event_type: None,
-                outcome: None,
             }
         }
     }
@@ -120,29 +110,8 @@ pub mod unstable {
     impl Response {
         /// Create a new Response.
         pub fn new(delayed_events: Vec<DelayedEventData>) -> Self {
-            Self { delayed_events, next_batch: None, prev_batch: None }
+            Self { delayed_events, next_batch: None }
         }
-    }
-
-    /// The order in which to display the events.
-    #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/string_enum.md"))]
-    #[derive(Clone, StringEnum, Default)]
-    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
-    #[ruma_enum(rename_all = "snake_case")]
-    pub enum OrderBy {
-        /// The intended scheduled send time (running_since + delay) of the delayed event.
-        #[default]
-        SendTs,
-
-        /// The time when the delayed event was finalized, or its scheduled send time if still
-        /// scheduled.
-        FinalizedTs,
-
-        /// The time when the delayed event was scheduled or last restarted.
-        RunningSince,
-
-        #[doc(hidden)]
-        _Custom(PrivOwnedStr),
     }
 
     #[cfg(all(test, feature = "client"))]
@@ -151,13 +120,14 @@ pub mod unstable {
         use std::borrow::Cow;
 
         use ruma_common::{
+            MilliSecondsSinceUnixEpoch,
             api::{
                 MatrixVersion, OutgoingRequest, SupportedVersions, auth_scheme::SendAccessToken,
             },
             owned_room_id,
         };
 
-        use super::{OrderBy, Request};
+        use super::Request;
         use crate::delayed_events::DelayedEventStatus;
 
         #[test]
@@ -169,11 +139,10 @@ pub mod unstable {
             };
 
             let mut req = Request::new();
-            req.order_by = OrderBy::RunningSince;
             req.from = Some("next_batch_key".to_owned());
-            req.status = Some(DelayedEventStatus::Finalized);
+            req.status = Some(DelayedEventStatus::Error);
             req.room_id = Some(room_id);
-            req.outcome = Some(crate::delayed_events::DelayedEventOutcome::Send);
+            req.to_ts = Some(MilliSecondsSinceUnixEpoch(555000.try_into().unwrap()));
 
             let request: http::Request<Vec<u8>> = req
                 .try_into_http_request(
@@ -190,7 +159,7 @@ pub mod unstable {
             );
             assert_eq!("GET", parts.method.to_string());
             assert_eq!(
-                "order_by=running_since&dir=f&from=next_batch_key&status=finalised&room_id=%21roomid%3Aexample.org&outcome=send",
+                "dir=f&from=next_batch_key&to_ts=555000&status=error&room_id=%21roomid%3Aexample.org",
                 parts.uri.query().unwrap()
             );
         }
@@ -234,7 +203,6 @@ pub mod unstable {
 
             let mut response = Response::new(vec![event0]);
             response.next_batch = Some("next_batch_key".to_owned());
-            response.prev_batch = Some("prev_batch_key".to_owned());
 
             let response: http::Response<Vec<u8>> = response.try_into_http_response().unwrap();
 
@@ -253,8 +221,7 @@ pub mod unstable {
                         "state_key": "a_state_key",
                         "type": "m.room.topic"
                         }],
-                    "next_batch" : "next_batch_key",
-                    "prev_batch" : "prev_batch_key"
+                    "next_batch" : "next_batch_key"
                 }),
                 serde_json::from_slice::<JsonValue>(response.body()).unwrap()
             );

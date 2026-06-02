@@ -96,17 +96,16 @@ impl DelayedEventData {
         }
     }
 
-    /// Returns the outcome of this event if it is finalized,
-    /// or None if it is still scheduled
-    pub fn outcome(&self) -> Option<DelayedEventOutcome> {
+    /// Returns the status indicated by this delayed event data.
+    pub fn outcome(&self) -> DelayedEventStatus {
         if self.finalized_ts.is_none() {
-            None
+            DelayedEventStatus::Scheduled
         } else if self.event_id.is_some() {
-            Some(DelayedEventOutcome::Send)
+            DelayedEventStatus::Send
         } else if self.error.is_some() {
-            Some(DelayedEventOutcome::Error)
+            DelayedEventStatus::Error
         } else {
-            Some(DelayedEventOutcome::Cancel)
+            DelayedEventStatus::Cancel
         }
     }
 }
@@ -121,28 +120,13 @@ pub enum DelayedEventStatus {
     /// It may be restarted, sent or cancelled via the management endpoint.
     Scheduled,
 
-    /// The event has been sent, canceled, or has failed to send.
-    /// No further action will be taken with this event.
-    #[ruma_enum(rename = "finalised")]
-    Finalized,
-
-    #[doc(hidden)]
-    _Custom(PrivOwnedStr),
-}
-
-/// The outcome that a finalized delayed event can have.
-#[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/string_enum.md"))]
-#[derive(Clone, StringEnum)]
-#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
-#[ruma_enum(rename_all = "snake_case")]
-pub enum DelayedEventOutcome {
-    /// The event has been sent successfully
+    /// The event has been sent successfully.
     Send,
 
-    /// The event has been cancelled
+    /// The event has been cancelled.
     Cancel,
 
-    /// The event has encountered an error when trying to send
+    /// The event has encountered an error when trying to send.
     Error,
 
     #[doc(hidden)]
